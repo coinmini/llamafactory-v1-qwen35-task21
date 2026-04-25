@@ -257,7 +257,8 @@ df -h
 
 ```bash
 conda activate llf_v1
-cd /Users/bolin/Documents/GitHub/linbo/llamafactory_official/LlamaFactory
+cd <repo-root>          # 本地为 /Users/bolin/Documents/GitHub/linbo/llamafactory_official/LlamaFactory
+                        # 远端 clone 后为 ./llamafactory-v1-qwen35-task21
 
 USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.yaml
 ```
@@ -314,3 +315,60 @@ USE_V1=1 NNODES=2 NODE_RANK=0 MASTER_ADDR=10.0.0.1 MASTER_PORT=29500 \
 - **如果效果不好**：检查 `cutoff_len=4096` 是否够（tools schema 一行就上千 token），不够要调大或者裁剪 tools 字段
 - **如果要训 thinking 模式**：把 yaml 里 `template: qwen3_5_nothink` 改成 `qwen3_5`，并确保数据里有 `<think>` reasoning 内容
 - **如果要训 Qwen3.5-VL**：`model_class` 从 `llm` 改成 `vl`，并确认数据中视觉 content 的格式（task21 目前是纯文本，无视觉部分）
+
+---
+
+## 8. 远端部署：GitHub 仓库
+
+### 8.1 仓库信息
+
+- **URL**：https://github.com/coinmini/llamafactory-v1-qwen35-task21
+- **可见性**：Public
+- **默认分支**：`task21-v1-qwen35`（基于 `hiyouga/LlamaFactory` 上游 main + 本次 task21/v1 改动）
+- **Remote 配置（本地）**：
+  - `origin` → `https://github.com/coinmini/llamafactory-v1-qwen35-task21.git`（你的部署仓库）
+  - `upstream` → `https://github.com/hiyouga/LlamaFactory.git`（hiyouga 上游，仅用于 fetch）
+
+### 8.2 仓库内的 commit
+
+| Commit | 说明 |
+|---|---|
+| `feat: add v1 qwen3.5 templates and task21 SFT pipeline` | qwen3_5/qwen3_5_nothink 模板、转换脚本、3 个 yaml 配置 |
+| `docs: add task21 setup guide, v0 loss-mask analysis, and dataset` | 本文档、`ROLE_BASED_LOSS_MASK.md`、原始数据 + 转换后数据 |
+
+### 8.3 远端机器一条龙部署
+
+```bash
+git clone https://github.com/coinmini/llamafactory-v1-qwen35-task21.git
+cd llamafactory-v1-qwen35-task21
+
+conda create -n llf_v1 python=3.12 -y
+conda activate llf_v1
+pip install -e .
+
+# 按需修改 yaml 中的 model 字段（模型 ID / 本地路径）
+# 单卡：注释掉 dist_config 整块；多卡：保留即可
+
+USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.yaml
+```
+
+数据已包含在仓库里（`data/task21_train.jsonl` / `data/task21_eval.jsonl`），无需额外传输。
+
+### 8.4 后续与上游同步
+
+如果想拉 hiyouga 上游的新 commit：
+
+```bash
+git fetch upstream
+git rebase upstream/main           # 或 git merge upstream/main
+git push origin task21-v1-qwen35
+```
+
+### 8.5 后续往这个仓库提交新工作
+
+```bash
+# 不要直推默认分支；新建 feature 分支 → push → 在 GitHub 上 merge
+git checkout -b <feature-name>
+# ... 改动 + commit ...
+git push -u origin <feature-name>
+```
