@@ -3,6 +3,11 @@
 #
 # NOTE: replace `model` with the exact Qwen3.5 checkpoint you want
 # (e.g. Qwen/Qwen3.5-4B-Instruct, or a local path).
+#
+# Field set kept intentionally minimal so this works on older v1 builds too.
+# The only fields used are those present in v1 TrainingArguments since day one.
+# Newer-only fields (warmup_ratio / logging_steps / save_steps / save_total_limit)
+# are intentionally omitted — add them back if your v1 build supports them.
 
 model: Qwen/Qwen3.5-4B-Instruct
 model_class: llm
@@ -23,7 +28,7 @@ kernel_config:
   name: auto
   include_kernels: auto
 
-# Distributed (single GPU: comment this block out)
+# Distributed: keep enabled for multi-GPU; for single GPU, comment out the block.
 dist_config:
   name: fsdp2
   dcp_path: null
@@ -32,16 +37,13 @@ dist_config:
 train_dataset: data/task21_dataset.yaml
 eval_dataset: data/task21_eval.yaml
 
-### training
+### training (minimal field set; works across v1 versions)
 output_dir: ./outputs/task21_qwen35_lora
 micro_batch_size: 1
 cutoff_len: 4096           # tools schema is large; 2048 is risky
 learning_rate: 1.0e-4
 num_train_epochs: 3
-warmup_ratio: 0.03
-logging_steps: 5
-save_steps: 100
-save_total_limit: 3
+bf16: true                 # H100 sweet spot
 
 ### sample
 sample_backend: hf
