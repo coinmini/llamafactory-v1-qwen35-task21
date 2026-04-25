@@ -1,0 +1,4 @@
+task21_train:
+  path: data/task21_train.jsonl
+  source: local
+  converter: sharegpt

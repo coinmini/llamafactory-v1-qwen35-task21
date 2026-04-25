@@ -1,0 +1,48 @@
+# Qwen3.5 LoRA SFT for task21 tool-calling data.
+# Run with:  USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.yaml
+#
+# NOTE: replace `model` with the exact Qwen3.5 checkpoint you want
+# (e.g. Qwen/Qwen3.5-4B-Instruct, or a local path).
+
+model: Qwen/Qwen3.5-4B-Instruct
+model_class: llm
+
+# Use qwen3_5 for the thinking variant, qwen3_5_nothink for instruct/chat.
+template: qwen3_5_nothink
+
+# PEFT
+peft_config:
+  name: lora
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules: all
+
+# Kernel
+kernel_config:
+  name: auto
+  include_kernels: auto
+
+# Distributed (single GPU: comment this block out)
+dist_config:
+  name: fsdp2
+  dcp_path: null
+
+### data
+train_dataset: data/task21_dataset.yaml
+eval_dataset: data/task21_eval.yaml
+
+### training
+output_dir: ./outputs/task21_qwen35_lora
+micro_batch_size: 1
+cutoff_len: 4096           # tools schema is large; 2048 is risky
+learning_rate: 1.0e-4
+num_train_epochs: 3
+warmup_ratio: 0.03
+logging_steps: 5
+save_steps: 100
+save_total_limit: 3
+
+### sample
+sample_backend: hf
+max_new_tokens: 512

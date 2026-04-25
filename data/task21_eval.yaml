@@ -1,0 +1,4 @@
+task21_eval:
+  path: data/task21_eval.jsonl
+  source: local
+  converter: sharegpt
