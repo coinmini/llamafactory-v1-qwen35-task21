@@ -1,4 +1,4 @@
-# 构建基于 Qwen3.5-4B 的 OpenClaw 工具调用大模型微调实战
+# 让 4B 小模型替代 GPT-5.4 当工具调用 agent：Qwen3.5-4B + OpenClaw 微调实战
 
 > **TL;DR**：基于 LlamaFactory v1 + LoRA，把 Qwen3.5-4B 微调成会调 OpenClaw（agent 工具调用框架）所有工具的小型 agent 模型。**单卡 H800 训练 80 分钟、321 条数据、3 epoch**，在 30 条独立验证集上由 3 个外部 LLM judge（kimi / gemini / deepseek）评分得到 **Normalized score 0.7566 / 1.0**（满分 10 分制下 7.566），关键参数选择和工具识别准确率超过 80%，已可投入到 6B 参数量上限的 agent 部署场景。完整代码与数据：<https://github.com/coinmini/llamafactory-v1-qwen35-task21>。
 
