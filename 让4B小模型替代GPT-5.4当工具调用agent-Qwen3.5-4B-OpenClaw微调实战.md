@@ -340,7 +340,7 @@ USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.ya
 
 启动后看到的健康日志：
 
-![训练启动 log（含 LoRA target / trainable% / step 1-3 loss）](pic/训练截图.png)
+![训练启动 log（含 LoRA target / trainable% / step 1-3 loss）](pic/训练截图1.png)
 
 **第一时间看的 6 个健康指标**：
 
@@ -375,7 +375,7 @@ USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.ya
 
 也可以从 LLaMA-Factory Online 的「文件管理」面板里查看 / 下载：
 
-![文件管理 — 项目顶层](pic/文件管理.png)
+![文件管理 — 项目顶层](pic/文件管理1.png)
 
 进入 outputs 子目录，可以看到所有产物：
 
@@ -477,7 +477,7 @@ nohup python local_validate.py \
 
 **微调后模型生成 vs Reference 对比**：
 
-![Conv 0 — write 工具调用，Generation vs Reference](pic/验证过程1.png)
+![Conv 0 — write 工具调用，Generation vs Reference](pic/验证过程1-1.png)
 
 **评分**：3 judge × 3 次平均 ~8.0 分，最高单次 9.0。
 
@@ -492,7 +492,7 @@ nohup python local_validate.py \
 
 **用户提问**："What cron jobs are currently scheduled? Show me the list"
 
-![Conv 14 — cron 工具调用对比](pic/验证过程2.png)
+![Conv 14 — cron 工具调用对比](pic/验证过程2-1.png)
 
 **评分**：3 judge × 3 次平均 ~8.5 分。
 
