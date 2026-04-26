@@ -119,7 +119,7 @@ print('Has <function=:', '<function=' in tmpl)     # True
 │  ├── chat_template.jinja                                                   │
 │  └── trainer_log.jsonl  (671 logging steps)                                │
 └──────┬─────────────────────────────────────────────────────────────────────┘
-       │   flock_validator + base_model + LoRA
+       │   local_validator + base_model + LoRA
        │   3 LLM judge × 3 tries × 30 samples = 262 valid evals
        ↓
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -399,7 +399,7 @@ USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.ya
 
 ### 5.1 评估方法
 
-定量评估采用 [flock_validator](https://github.com/FLock-io) 框架，调三个独立的外部 LLM judge 打分：
+定量评估采用 **local_validator** 框架，调三个独立的外部 LLM judge 打分：
 
 - **kimi-k2.5**（Moonshot AI）
 - **gemini-3.1-pro-preview-low**（Google）
@@ -427,7 +427,7 @@ USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.ya
 
 ```bash
 conda activate llf_v1
-cd /workspace/flock_validator_local_only_local_path
+cd /workspace/local_validator
 
 nohup python local_validate.py \
   --model-path /workspace/llamafactory-v1-qwen35-task21/outputs/task21_qwen35_lora \
@@ -607,7 +607,7 @@ nohup python local_validate.py \
 1. LlamaFactory 官方仓库：<https://github.com/hiyouga/LLaMA-Factory>
 2. Qwen3.5 模型卡（HuggingFace）：<https://huggingface.co/Qwen/Qwen3.5-4B>
 3. Qwen3.5 模型卡（modelscope，国内可访问）：<https://modelscope.cn/models/Qwen/Qwen3.5-4B>
-4. flock_validator 评估框架：<https://github.com/FLock-io>
+4. local_validator 评估框架（项目内部工具）
 5. PyTorch CUDA wheel 安装：<https://pytorch.org/get-started/locally/>
 
 ### 代码与资源
