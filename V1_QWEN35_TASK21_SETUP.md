@@ -157,14 +157,17 @@ micro_batch_size: 1
 cutoff_len: 4096                       # tools schema 较大，2048 可能不够
 learning_rate: 1.0e-4
 num_train_epochs: 3
-warmup_ratio: 0.03
-logging_steps: 5
-save_steps: 100
-save_total_limit: 3
+bf16: true                             # H100/A100 sweet spot
 
 sample_backend: hf
 max_new_tokens: 512
 ```
+
+> **历史变更（v1 字段兼容性踩坑）**：早先版本的 yaml 里有 `warmup_ratio / logging_steps / save_steps / save_total_limit`，但远端某些 v1 build 的 `TrainingArguments` 不认这些字段（HfArgumentParser 会抛 `Some keys are not used by the HfArgumentParser` 异常）。
+>
+> 当前 yaml 只保留**自 v1 第一版起就存在的最小字段集**（output_dir / micro_batch_size / cutoff_len / learning_rate / num_train_epochs / bf16），最大化跨版本可移植性。如果你跑的 v1 是新版（在 [src/llamafactory/v1/config/training_args.py](src/llamafactory/v1/config/training_args.py) 里能找到 `logging_steps` 等字段），可以加回来。
+>
+> warmup 在新版 v1 是通过 `lr_scheduler_config:` plugin 配置的，不是顶层字段。
 
 ---
 
@@ -190,12 +193,13 @@ pip install -e .
 
 ### 3.3 装机过程踩到的坑
 
-第一次 `pip install -e .` 在 setuptools 升级时被中断，导致 setuptools 处于半装状态（81.0.0 不完整）。修复办法：
+完整的踩坑实录见 **[§8.4 远端环境踩坑实录](#84-远端环境踩坑实录重要)**，覆盖：
 
-```bash
-pip install --force-reinstall setuptools
-pip install -e .
-```
+- §8.4.1 `pip install -e .` 中途被中断导致 setuptools 半装
+- §8.4.2 已存在的 conda 环境可能装了"另一个" LlamaFactory 路径
+- §8.4.3 yaml 字段在旧版 v1 不被认（`HfArgumentParser` 报错）
+- §8.4.4 单卡必须注释 `dist_config`
+- §8.4.5 `git pull` 因为本地 yaml 改动被拒
 
 ---
 
@@ -334,7 +338,9 @@ USE_V1=1 NNODES=2 NODE_RANK=0 MASTER_ADDR=10.0.0.1 MASTER_PORT=29500 \
 | Commit | 说明 |
 |---|---|
 | `feat: add v1 qwen3.5 templates and task21 SFT pipeline` | qwen3_5/qwen3_5_nothink 模板、转换脚本、3 个 yaml 配置 |
-| `docs: add task21 setup guide, v0 loss-mask analysis, and dataset` | 本文档、`ROLE_BASED_LOSS_MASK.md`、原始数据 + 转换后数据 |
+| `docs: add task21 setup guide, v0 loss-mask analysis, and dataset` | 本文档第 1-7 节、`ROLE_BASED_LOSS_MASK.md`、原始数据 + 转换后数据 |
+| `docs: add GitHub repo deployment section to setup guide` | 本文档第 8 节（远端部署、上游同步、新分支工作流） |
+| `fix(yaml): drop newer-only training fields for older v1 compat` | 训练 yaml 移除 `warmup_ratio / logging_steps / save_steps / save_total_limit`，加 `bf16: true`，使其在旧版 v1 也能解析 |
 
 ### 8.3 远端机器一条龙部署
 
@@ -354,7 +360,95 @@ USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.ya
 
 数据已包含在仓库里（`data/task21_train.jsonl` / `data/task21_eval.jsonl`），无需额外传输。
 
-### 8.4 后续与上游同步
+### 8.4 远端环境踩坑实录（重要）
+
+实际在远端 H100 机器上首次跑训练，按上面的步骤还会遇到几个隐形问题，这里记录一下避免下次重复踩坑：
+
+#### 8.4.1 `pip install -e .` 在 setuptools 升级时被中断
+
+现象：第一次 `pip install -e .` 中途 Ctrl-C 或网络断开，setuptools 处于半装状态（如 81.0.0 不完整），后续任何 pip 操作都会报奇怪的错。
+
+修复：
+```bash
+pip install --force-reinstall setuptools
+pip install -e .
+```
+
+#### 8.4.2 lf 等已存在的 conda 环境可能指向"另一个" LlamaFactory
+
+如果机器上已经有一个名为 `lf`（或别的）的 conda 环境，**别想当然假设它装的就是你 clone 的那份代码**。这次实测：
+
+```bash
+# 远端 lf 环境查到的真实路径
+$ python -c "import llamafactory, os; print(os.path.dirname(llamafactory.__file__))"
+/LLaMA-Factory/src/llamafactory                 # ← 不是 ~/llamafactory-v1-qwen35-task21!
+$ ls /LLaMA-Factory/src/llamafactory/v1/plugins/model_plugins/templates/
+                                                 # ← 空目录，连 qwen3.py 都没有，是更老的 v1
+```
+
+也就是说：报错栈里的 `File "/LLaMA-Factory/..."` 跟你 `cd` 到的 clone 目录**完全不是同一份代码**，clone 仓库里加的 `qwen3_5.py` 模板根本没生效。
+
+诊断指令：
+```bash
+python -c "import llamafactory, os; print(os.path.dirname(llamafactory.__file__))"
+```
+- 输出 `/<your-clone>/src/llamafactory` → ✅ 正确
+- 输出 `/LLaMA-Factory/...` 或别的路径 → ❌ 装错了
+
+修复（强制把 conda 环境切到 clone 仓库）：
+```bash
+pip uninstall llamafactory -y      # 跑两次更彻底
+pip uninstall llamafactory -y
+cd <clone-dir>
+pip install -e .
+
+# 复验
+python -c "import llamafactory, os; print(os.path.dirname(llamafactory.__file__))"
+```
+
+#### 8.4.3 yaml 字段被旧版 v1 拒绝
+
+现象：
+```
+ValueError: Some keys are not used by the HfArgumentParser:
+['logging_steps', 'save_steps', 'save_total_limit', 'warmup_ratio']
+```
+
+原因和修复：见 [§2.4](#24-训练-yaml) 末尾的「历史变更」说明，本仓库 yaml 已经只保留兼容字段。
+
+#### 8.4.4 单卡跑要注释 `dist_config`
+
+`dist_config: fsdp2` 是为多卡设计的；单卡（如单张 H100）跑必须把这块注释掉，否则会启动 FSDP 失败或挂起。一行 sed 搞定：
+```bash
+sed -i '/^dist_config:/,/^  dcp_path: null/s/^/# /' \
+  examples/v1/train_lora/train_lora_task21_qwen35.yaml
+grep -n dist_config examples/v1/train_lora/train_lora_task21_qwen35.yaml   # 确认都被 # 开头
+```
+
+#### 8.4.5 `git pull` 因为本地 yaml 改动被拒
+
+如果你按 8.4.4 用 `sed` 改了 yaml，下次 `git pull` 会报：
+```
+error: Your local changes to the following files would be overwritten by merge:
+        examples/v1/train_lora/train_lora_task21_qwen35.yaml
+Please commit your changes or stash them before you merge.
+```
+
+最干净的处理方式（这种本地改动不需要保留，注释 `dist_config` 这步反正会重做）：
+```bash
+git checkout -- examples/v1/train_lora/train_lora_task21_qwen35.yaml
+git pull origin task21-v1-qwen35
+# 然后重新跑 8.4.4 的 sed
+```
+
+如果本地有别的改动想保留：
+```bash
+git stash
+git pull origin task21-v1-qwen35
+git stash pop                       # 必要时手动解冲突
+```
+
+### 8.5 后续与上游同步
 
 如果想拉 hiyouga 上游的新 commit：
 
@@ -364,7 +458,7 @@ git rebase upstream/main           # 或 git merge upstream/main
 git push origin task21-v1-qwen35
 ```
 
-### 8.5 后续往这个仓库提交新工作
+### 8.6 后续往这个仓库提交新工作
 
 ```bash
 # 不要直推默认分支；新建 feature 分支 → push → 在 GitHub 上 merge
