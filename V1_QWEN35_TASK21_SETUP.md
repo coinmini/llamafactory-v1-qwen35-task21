@@ -200,6 +200,8 @@ pip install -e .
 - §8.4.3 yaml 字段在旧版 v1 不被认（`HfArgumentParser` 报错）
 - §8.4.4 单卡必须注释 `dist_config`
 - §8.4.5 `git pull` 因为本地 yaml 改动被拒
+- §8.4.6 国内服务器 pip / HuggingFace 慢，配镜像
+- §8.4.7 torch CUDA build 跟驱动版本不匹配（`NVIDIA driver too old`）
 
 ---
 
@@ -447,6 +449,78 @@ git stash
 git pull origin task21-v1-qwen35
 git stash pop                       # 必要时手动解冲突
 ```
+
+#### 8.4.6 国内服务器 pip / HuggingFace 下载慢
+
+`pip install -e .` 走默认 PyPI 在国内可能只有几十 KB/s。配镜像后 1-2 分钟搞定：
+
+```bash
+# pip 永久镜像（清华 TUNA）
+mkdir -p ~/.pip
+cat > ~/.pip/pip.conf <<'EOF'
+[global]
+index-url = https://pypi.tuna.tsinghua.edu.cn/simple
+trusted-host = pypi.tuna.tsinghua.edu.cn
+
+[install]
+trusted-host = pypi.tuna.tsinghua.edu.cn
+EOF
+
+# HuggingFace 镜像（下载 Qwen3.5 等模型用）
+echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.bashrc
+source ~/.bashrc
+
+# 验证
+pip config list
+echo "HF_ENDPOINT=$HF_ENDPOINT"
+```
+
+备选 pip 镜像（按速度依次）：
+| 镜像 | URL |
+|---|---|
+| 清华 TUNA | `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| 阿里云 | `https://mirrors.aliyun.com/pypi/simple/` |
+| 中科大 | `https://pypi.mirrors.ustc.edu.cn/simple/` |
+| 腾讯云 | `https://mirrors.cloud.tencent.com/pypi/simple/` |
+
+> 中途 Ctrl-C 重新跑 `pip install -e .` 不会从头下载，已下到 cache 的包会复用，所以临时切镜像不亏。
+
+#### 8.4.7 torch CUDA build 跟驱动版本不匹配
+
+现象（在驱动 = CUDA 12.8 的机器上跑训练）：
+```
+UserWarning: CUDA initialization: The NVIDIA driver on your system is too old
+(found version 12080). Please update your GPU driver ...
+```
+
+**两个 CUDA 版本号别混淆**：
+- `nvidia-smi` 顶部显示的 `CUDA Version: 12.8` —— 是**驱动支持的最高 CUDA 版本**
+- `torch.version.cuda` —— 是 **torch wheel 编译时绑定的 CUDA 版本**（如 cu126、cu128）
+
+报错的真正原因是 torch wheel 编译用的 CUDA toolkit 比驱动支持的某些 ABI 新。修法是**装匹配驱动 CUDA 版本的 torch wheel**：
+
+```bash
+# 先确认机器实际支持的 CUDA 上限
+nvidia-smi | head -3
+
+# 卸载现有 torch
+pip uninstall -y torch torchvision torchaudio
+
+# 装 CUDA 12.8 build（PyTorch 官方）
+pip install torch torchvision torchaudio \
+  --index-url https://download.pytorch.org/whl/cu128
+
+# 国内连不通官方 index 时换镜像
+pip install torch torchvision torchaudio \
+  --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128
+
+# 验证
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
+实测案例：远端 H100 机器驱动支持 CUDA 12.8，原 lf 环境装的是 cu126 build → 改装 cu128 build 后 `torch.cuda.is_available()` 由 False 变 True，训练正常启动。
+
+> 同理，如果驱动很老（比如只支持 CUDA 12.1），用 `--index-url https://download.pytorch.org/whl/cu121` 装 cu121 build。`torch==2.5.x` 系列对老驱动友好。
 
 ### 8.5 后续与上游同步
 
