@@ -10,13 +10,13 @@
 
 随着 Claude Code、Cursor、ChatGPT desktop 等带工具调用能力的 agent 形态产品在 2024-2026 年迅速普及，**模型能否准确选择工具、正确填写工具参数**，已经成为 agent 产品体验的核心。但实际部署时遇到的瓶颈是：
 
-- **大模型成本高、本地化困难**：GPT-4o/Claude 3.5/Gemini 这些通用大模型虽然 tool-calling 能力强，但调用成本高，且依赖外网。
+- **大模型成本高、本地化困难**：GPT-5.4 / Claude 4.6 / Gemini 3.1 Pro 这些通用大模型虽然 tool-calling 能力强，但调用成本高，且依赖外网。
 - **小模型工具调用能力弱**：6B 以下的开源小模型即使原生支持工具调用格式（XML 或 JSON），但**面对一个特定 agent 平台的工具集**（每个工具的语义、必需参数、错误处理风格）时，参数选择经常出错、连续工具调用的逻辑断裂。
-- **私有化部署 agent 需要"工具集合专属"的小模型**：不可能给每个客户都用 GPT-4o，但通用 7B/8B 模型直接拿来又不够好，必须做**任务定制化的微调**。
+- **私有化部署 agent 需要"工具集合专属"的小模型**：不可能给每个客户都用 GPT-5.4，但通用 7B/8B 模型直接拿来又不够好，必须做**任务定制化的微调**。
 
 ### 1.2 LLM 机遇：垂类微调能让小模型在专属工具集上接近大模型水平
 
-近期开源社区的研究表明，**100-500 条高质量任务数据 + LoRA 微调**就能让 4B-7B 的小模型在专属任务上达到接近 GPT-4 的表现。LlamaFactory 等工具链的成熟使得训练门槛进一步降低 —— 工程师无需重写 trainer，**只需准备数据 + 写一份 yaml 即可启动训练**。
+近期开源社区的研究表明，**100-500 条高质量任务数据 + LoRA 微调**就能让 4B-7B 的小模型在专属任务上达到接近 frontier 模型（GPT-5.4 / Claude 4.6）的表现。LlamaFactory 等工具链的成熟使得训练门槛进一步降低 —— 工程师无需重写 trainer，**只需准备数据 + 写一份 yaml 即可启动训练**。
 
 LlamaFactory v1（2025 年发布的新版）相比 v0 在 **agent / tool-calling 数据**上有重大改进：v0 用奇偶位置配对 prompt/response，会丢掉**连续 function_call**或**连续 observation**的 agent 样本；v1 改成**逐条 message 标 `loss_weight`**（per-message 而非 per-pair），天然支持任意 agent 流程。
 
@@ -133,7 +133,7 @@ print('Has <function=:', '<function=' in tmpl)     # True
 
 ### 3.1 数据来源
 
-task21 数据来自 **OpenClaw 自身的 distill 流水线** —— 平台用更大的 frontier 模型（GPT-4 / Claude 3.5）按 OpenClaw 工具集合采样真实工具调用对话，再做去敏感、去重、人工抽检后形成的合成数据集。
+task21 数据来自 **OpenClaw 自身的 distill 流水线** —— 平台用更大的 frontier 模型（GPT-5.4 / Claude 4.6 / Gemini 3.1 Pro）按 OpenClaw 工具集合采样真实工具调用对话，再做去敏感、去重、人工抽检后形成的合成数据集。
 
 **优势**：
 
@@ -534,7 +534,7 @@ nohup python local_validate.py \
 
 这套**「专属 agent 工具调用小模型」** 至少有 3 种交付形态：
 
-1. **私有化 API**：把 4B + LoRA 部署在客户内网（一张 A100/H100 即可），通过 OpenAI 兼容协议对外。客户原来用 GPT-4 的 agent 应用直接换 endpoint。
+1. **私有化 API**：把 4B + LoRA 部署在客户内网（一张 A100/H100 即可），通过 OpenAI 兼容协议对外。客户原来用 GPT-5.4 / Claude 4.6 的 agent 应用直接换 endpoint。
 2. **Edge / 离线 agent SDK**：4B 模型在配备 24GB 显存的工作站（甚至高端 RTX 4090 / Mac M4 Max）上能本地推理。打包成 SDK，客户的 agent 完全不依赖外网。
 3. **OpenClaw 平台增值组件**：直接作为 OpenClaw 平台的"专属模式"打包售卖，客户把自己的工具集训练数据上传，平台自动跑这套 SFT 流水线，给客户专属 LoRA。
 
@@ -584,7 +584,7 @@ nohup python local_validate.py \
 
 按优先级排列：
 
-1. **扩展数据到 1000+ 条**：用 GPT-4 / Claude 3.5 按 OpenClaw 工具集采样合成新样本，特别**补充错误处理 / 多步推理 / 异常分支**的覆盖
+1. **扩展数据到 1000+ 条**：用 GPT-5.4 / Claude 4.6 按 OpenClaw 工具集采样合成新样本，特别**补充错误处理 / 多步推理 / 异常分支**的覆盖
 2. **跑完整的 base 模型 baseline**：得到精确的"微调前 vs 微调后"提升数字
 3. **配置 lr_scheduler_config plugin（v1 新版）**：cosine + warmup_ratio=0.03，让训练后期 loss 更稳
 4. **试 Qwen3.5-7B 的 LoRA 对比**：如果项目把 max_params 上限放开到 8B，4B vs 7B 的 ROI 是多少
