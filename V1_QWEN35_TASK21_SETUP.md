@@ -202,6 +202,8 @@ pip install -e .
 - §8.4.5 `git pull` 因为本地 yaml 改动被拒
 - §8.4.6 国内服务器 pip / HuggingFace 慢，配镜像
 - §8.4.7 torch CUDA build 跟驱动版本不匹配（`NVIDIA driver too old`）
+- §8.4.8 离线服务器 / HF 完全不通：用 modelscope 下载 + offline 模式
+- §8.4.9 Qwen3.5 命名约定（**没有 `-Instruct` 后缀**，base id 本身就是 chat 版）
 
 ---
 
@@ -522,6 +524,77 @@ python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda
 
 > 同理，如果驱动很老（比如只支持 CUDA 12.1），用 `--index-url https://download.pytorch.org/whl/cu121` 装 cu121 build。`torch==2.5.x` 系列对老驱动友好。
 
+#### 8.4.8 离线服务器 / HuggingFace 完全不通：modelscope + offline
+
+很多国内云服务器对 HuggingFace 是**完全不通**的（不仅是慢），连 `hf-mirror.com` 也访问不了。现象：
+
+```
+'[Errno 101] Network is unreachable' thrown while requesting HEAD https://huggingface.co/...
+'timed out' thrown while requesting HEAD https://hf-mirror.com/...
+```
+
+解决方案：用 **modelscope** 把模型下到本地，yaml 直接用本地路径，并启用 transformers offline 模式跳过所有网络检查。
+
+```bash
+# 1) 装 modelscope（pyproject 已经声明了，通常已装）
+pip install modelscope -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 2) 下载模型到本地（modelscope 国内速度极快，几十秒到几分钟）
+python <<'PY'
+from modelscope import snapshot_download
+path = snapshot_download('Qwen/Qwen3.5-4B')   # 注意命名见 §8.4.9
+print(f'\n>>> MODEL_PATH: {path}')
+PY
+# 输出形如：>>> MODEL_PATH: /root/.cache/modelscope/hub/models/Qwen/Qwen3___5-4B
+# 注意 modelscope 把点号 `.` 转成三连下划线 `___`
+
+# 3) 把 yaml 的 model 字段改成本地路径
+MODEL_PATH=/root/.cache/modelscope/hub/models/Qwen/Qwen3___5-4B
+sed -i "s|^model:.*|model: $MODEL_PATH|" examples/v1/train_lora/train_lora_task21_qwen35.yaml
+grep "^model:" examples/v1/train_lora/train_lora_task21_qwen35.yaml
+
+# 4) 关掉 transformers 的网络检查（不然它还会去 HEAD 一次 HF 看有没有更新）
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+echo 'export HF_HUB_OFFLINE=1' >> ~/.bashrc
+echo 'export TRANSFORMERS_OFFLINE=1' >> ~/.bashrc
+
+# 5) 跑训练
+USE_V1=1 llamafactory-cli sft examples/v1/train_lora/train_lora_task21_qwen35.yaml
+```
+
+> 即使配了 `HF_ENDPOINT=https://hf-mirror.com`，transformers 仍然会发请求；只有 `HF_HUB_OFFLINE=1` 才能让它彻底走本地。
+
+#### 8.4.9 Qwen3.5 模型命名约定
+
+`Qwen/Qwen3.5-4B` 在 modelscope（以及 HuggingFace）上**本身就是带 chat / tool-calling 能力的版本**，不像 Qwen2.5 系列分 base / Instruct。验证方法：
+
+```bash
+MODEL_PATH=/root/.cache/modelscope/hub/models/Qwen/Qwen3___5-4B
+python -c "
+import json
+with open('$MODEL_PATH/tokenizer_config.json') as f:
+    cfg = json.load(f)
+tmpl = cfg.get('chat_template', '')
+print('Has chat_template:', bool(tmpl))
+print('Has <tool_call>:', '<tool_call>' in tmpl)
+print('Has <function=:', '<function=' in tmpl)
+"
+```
+
+预期输出：
+```
+Has chat_template: True
+Has <tool_call>: True
+Has <function=: True
+```
+
+→ 这台模型已经懂 qwen3_5 的 XML 工具调用格式，跟本仓库的 `qwen3_5_nothink` 模板对齐。
+
+⚠️ 历史 yaml 里写的 `Qwen/Qwen3.5-4B-Instruct` 在 modelscope 上**不存在**（HuggingFace 上同样找不到），如果你还看到这个 id，记得改成 `Qwen/Qwen3.5-4B`。
+
+> 顺便：Qwen3.5 默认 build 是 omni/VL（带视觉模块）。加载日志里会看到 `model.visual.pos_embed.weight` 这种 weight。**纯文本工具调用数据照样能训**，VL 部分自动跳过、不参与梯度。
+
 ### 8.5 后续与上游同步
 
 如果想拉 hiyouga 上游的新 commit：
@@ -540,3 +613,48 @@ git checkout -b <feature-name>
 # ... 改动 + commit ...
 git push -u origin <feature-name>
 ```
+
+---
+
+## 9. 训练启动实测（H100 80GB，单卡）
+
+### 9.1 启动 log
+
+```text
+[INFO] DistributedInterface initialized: ... is_distributed=False, current_device=cuda:0,
+       rank=0, world_size=1
+Loading weights: 100%|██| 723/723 [00:03<00:00, 213.10it/s,
+                  Materializing param=model.visual.pos_embed.weight]
+[INFO] llamafactory.v1.plugins.model_plugins.peft: Fine-tuning method: LoRA
+[INFO] LoRA target modules:
+       ['in_proj_a','gate_proj','in_proj_b','up_proj','linear_fc2','q_proj','k_proj',
+        'o_proj','in_proj_qkv','out_proj','proj','linear_fc1','in_proj_z','v_proj',
+        'down_proj','qkv']
+trainable params: 39,034,880 || all params: 4,578,300,416 || trainable%: 0.8526
+[INFO] Init unified data loader with global batch size 1, micro batch size 1,
+       num micro batch 1, cutoff len 4096, batching workers 16, batching strategy normal.
+[INFO] epoch: 0, step: 1, loss: 2.0204, grad_norm: 4.7957, lr: 0.0001, total_steps: 963
+[INFO] epoch: 0, step: 2, loss: 0.5614, grad_norm: 7.2953, lr: 0.0001, total_steps: 963
+[INFO] epoch: 0, step: 3, loss: 0.5755, grad_norm: 3.2949, lr: 0.0001, total_steps: 963
+```
+
+### 9.2 关键指标
+
+| 指标 | 值 | 解读 |
+|---|---|---|
+| 模型加载 | 723 个 weight tensor / 3 秒 | 本地 modelscope cache 加速明显 |
+| LoRA target modules | 16 个 | `target_modules: all` 自动展开 |
+| Trainable params | 39M / 4.58B = **0.85%** | LoRA 典型比例 |
+| `total_steps` | **963** = 321 样本 × 3 epoch / batch=1 | |
+| Step 1 loss | 2.02 | 见到新数据格式的正常初始 loss |
+| Step 2-3 loss | 0.56 / 0.58 | 立刻降下来 → 数据 + 模板对齐成功 |
+| `grad_norm` | 4.8 / 7.3 / 3.3 | 没炸 |
+| Step 间隔 | ~5 秒 | H100 + 4B + bf16 + 4096 length 正常 |
+| 总耗时预估 | 963 × 5s ≈ **80 分钟** | |
+
+### 9.3 后续可选改进
+
+- 想看 eval loss：训练 yaml 加 `eval_dataset` 已经声明，但需要在新版 v1 才会真正在循环里跑 eval
+- 想加 logging 频率 / save checkpoint：取决于你的 v1 build 是否支持 `logging_steps / save_steps`（见 §2.4 末尾说明）
+- 想跑 thinking 模式：把 `template: qwen3_5_nothink` 改成 `qwen3_5`，前提是你的训练数据带 `<think>` reasoning 内容
+- 想训更大模型（如 Qwen3.5-32B）：单张 H100 80GB 可能装不下 LoRA + bf16，需要打开 `dist_config: fsdp2` + 多卡
